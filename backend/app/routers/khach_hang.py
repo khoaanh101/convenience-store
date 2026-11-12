@@ -1,10 +1,100 @@
-from app.services.crud import register_crud_routes
-from fastapi import APIRouter
+from decimal import Decimal
+from typing import Annotated
+
+from app.database.connection import get_session
+from app.services.crud import (
+    execute_procedure_with_rows,
+    execute_write,
+    register_crud_routes,
+)
+from fastapi import APIRouter, Body, Depends
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(
     prefix="/khach-hang",
     tags=["khach-hang"]
 )
+
+
+class MembershipIssueRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    ma_the: str = Field(alias="MaThe", max_length=10)
+    ma_kh: str = Field(alias="MaKH", max_length=10)
+    gia_the: Decimal = Field(alias="GiaThe", ge=0)
+    so_ngay: int = Field(alias="SoNgay", gt=0)
+
+
+@router.get("/thanh-vien/con-hieu-luc")
+async def list_active_memberships(
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    result = await session.execute(
+        text(
+            """
+            SELECT MaThe, MaKH, HoTen, NgayMua, GiaThe, HSD, TrangThaiThe
+            FROM v_the_thanh_vien_con_hieu_luc
+            ORDER BY MaThe
+            """
+        )
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+@router.post("/cap-the")
+async def issue_membership(
+    payload: Annotated[
+        MembershipIssueRequest,
+        Body(
+            json_schema_extra={
+                "example": {
+                    "MaThe": "THE001",
+                    "MaKH": "KH001",
+                    "GiaThe": 200000,
+                    "SoNgay": 365,
+                }
+            }
+        ),
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    await execute_write(
+        session,
+        "CALL `sp_cap_the`(:mathe, :makh, :giathe, :so_ngay)",
+        {
+            "mathe": payload.ma_the,
+            "makh": payload.ma_kh,
+            "giathe": payload.gia_the,
+            "so_ngay": payload.so_ngay,
+        },
+        signal_status_code=409,
+    )
+    result = await session.execute(
+        text(
+            """
+            SELECT MaThe, MaKH, NgayMua, GiaThe, HSD, TrangThaiThe
+            FROM the_thanh_vien
+            WHERE MaThe = :mathe
+            """
+        ),
+        {"mathe": payload.ma_the},
+    )
+    return dict(result.mappings().one())
+
+
+@router.post("/thanh-vien/cap-nhat-het-han")
+async def update_expired_memberships(
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    rows = await execute_procedure_with_rows(
+        session,
+        "CALL `capnhat_the_het_han`()",
+        {},
+    )
+    return {"so_the_da_cap_nhat": rows[0]["SoTheDaCapNhat"] if rows else 0}
+
 
 register_crud_routes(
     router,
@@ -38,6 +128,7 @@ register_crud_routes(
     business_conflict_detail=(
         "Mỗi khách hàng chỉ được có một thẻ thành viên còn hiệu lực."
     ),
+    allow_create=False,
     path="/thanh-vien",
 )
 

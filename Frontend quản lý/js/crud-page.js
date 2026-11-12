@@ -66,7 +66,7 @@ function CrudPage(cfg) {
   function openForm(row) {
     S.editing = row;
     $('dt').textContent = (row ? 'Sửa ' : 'Thêm ') + cfg.title;
-    $('ff').innerHTML = cfg.cols.filter(c => c.form !== false).map(c => {
+    $('ff').innerHTML = cfg.cols.filter(c => c.form !== false && (row ? c.edit !== false : c.create !== false)).map(c => {
       const dis = row && c.k === cfg.key ? 'disabled' : '';
       const v = row ? (row[c.k] ?? '') : (c.def ?? '');
       let inp;
@@ -79,7 +79,7 @@ function CrudPage(cfg) {
 
   function collect() {
     const out = {};
-    for (const c of cfg.cols.filter(c => c.form !== false)) {
+    for (const c of cfg.cols.filter(c => c.form !== false && (S.editing ? c.edit !== false : c.create !== false))) {
       if (S.editing && c.k === cfg.key) continue;
       let v = document.querySelector(`#ff [name="${c.k}"]`).value.trim();
       if (v === '') { if (c.req) throw new Error(`Vui lòng nhập ${c.label}.`); if (S.editing) out[c.k] = null; continue; }
@@ -106,6 +106,7 @@ function CrudPage(cfg) {
     try {
       const data = collect(); $('save').disabled = true;
       if (S.editing) await api('PUT', `${cfg.base}/${encodeURIComponent(S.editing[cfg.key])}`, data);
+      else if (cfg.createRequest) await cfg.createRequest(data);
       else await api('POST', coll, data);
       $('dlg').close(); toast(S.editing ? 'Đã lưu thay đổi' : 'Đã thêm ' + cfg.title); load();
     } catch (err) { $('ferr').textContent = err.message; }

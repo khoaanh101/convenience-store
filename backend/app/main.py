@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import (
+    bao_cao,
     chuc_vu,
     hang_hoa,
     hoa_don,
@@ -36,6 +37,7 @@ for router in (
     nhan_vien.router,
     nhap_hang.router,
     phan_cong_ca.router,
+    bao_cao.router,
 ):
     app.include_router(router)
 
