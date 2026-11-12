@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bán hàng · Cửa hàng tiện lợi</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/nghiep-vu.css">
+</head>
+<body data-page="ban-hang" data-title="Bán hàng">
+<main id="app">
+  <form class="card" id="sale">
+    <fieldset id="sale-fields" class="flow-fields" disabled>
+      <div class="fields">
+        <label>Mã hóa đơn<input name="MaHD" required maxlength="20" pattern="[A-Za-z0-9_\-]+" title="Chữ không dấu, số, dấu gạch dưới hoặc gạch ngang"></label>
+        <label>Phân công ca<select name="MaPK" required></select></label>
+        <label class="full">Khách hàng<select name="MaKH"></select></label>
+        <label>Tìm hàng<input type="search" id="product-query" placeholder="Nhập mã hoặc tên hàng"></label>
+        <label>Hàng hóa<select id="product" aria-label="Hàng hóa"></select></label>
+        <button type="button" class="btn" id="add-product">Thêm mặt hàng</button>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Mặt hàng</th><th>Tồn kho</th><th>Đơn giá</th><th>Số lượng</th><th>Thành tiền</th><th>Thao tác</th></tr></thead>
+          <tbody id="cart"></tbody>
+        </table>
+      </div>
+      <div class="foot">
+        <span>Tạm tính <strong id="total">0 ₫</strong></span>
+        <button class="btn pri">Thanh toán & Lưu hóa đơn</button>
+      </div>
+    </fieldset>
+    <p class="flow-status" id="status" role="status"></p>
+  </form>
+</main>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/nghiep-vu.js"></script>
+<script src="js/ban-hang.js"></script>
+</body>
+</html>

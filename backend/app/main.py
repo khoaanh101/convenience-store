@@ -23,6 +23,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -45,3 +46,7 @@ async def root():
     return {
         "message": "Backend is running"
     }
+
+# Endpoint giao tiếp với Frontend nghiệp vụ.
+app.add_api_route("/api/hoa-don", hoa_don.ban_hang, methods=["POST"], status_code=201)
+app.add_api_route("/api/phieu-nhap", nhap_hang.tiep_nhan, methods=["POST"], status_code=201)

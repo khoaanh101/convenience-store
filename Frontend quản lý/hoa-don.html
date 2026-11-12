@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hóa đơn &amp; Phiếu nhập · Cửa hàng tiện lợi</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/nghiep-vu.css">
+</head>
+<body data-page="hoa-don" data-title="Hóa đơn &amp; Phiếu nhập">
+<main id="app">
+  <section id="lookup">
+    <form class="bar" id="search">
+      <label>Loại chứng từ <select name="Loai"><option value="sale">Hóa đơn</option><option value="receipt">Phiếu nhập</option></select></label>
+      <label>Mã chứng từ <input name="MaHD" type="search" placeholder="Nhập mã cần tìm"></label>
+      <label>Ngày bán <input name="Ngay" type="date"></label>
+      <label>Khách hàng <select name="MaKH"></select></label>
+      <button class="btn pri">Tìm chứng từ</button>
+    </form>
+    <div id="results" class="card tw"></div>
+  </section>
+  <section id="detail" hidden></section>
+  <p class="flow-status" id="status" role="status"></p>
+</main>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/nghiep-vu.js"></script>
+<script src="js/hoa-don.js"></script>
+</body>
+</html>
