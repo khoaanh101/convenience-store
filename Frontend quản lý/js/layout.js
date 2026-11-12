@@ -6,6 +6,9 @@
     ['nhan-vien', 'Nhân viên', 'nhan-vien.html'],
     ['khach-hang', 'Khách hàng', 'khach-hang.html'],
     ['the-thanh-vien', 'Thẻ thành viên', 'the-thanh-vien.html'],
+    ['ban-hang', 'Bán hàng', 'ban-hang.html'],
+    ['hoa-don', 'Hóa đơn & Phiếu nhập', 'hoa-don.html'],
+    ['nhap-hang', 'Nhập hàng', 'nhap-hang.html'],
   ];
   const cur = document.body.dataset.page;
   const app = document.getElementById('app');

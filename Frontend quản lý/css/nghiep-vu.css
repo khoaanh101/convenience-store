@@ -1,0 +1,12 @@
+.flow-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.flow-status { margin: 0; padding: 10px 16px; color: var(--mute); }
+.flow-status:empty { display: none; }
+.flow-status.bad { color: var(--bad); }
+.flow-status.ok { color: var(--ok); }
+.flow-fields .foot { align-items: center; flex-wrap: wrap; }
+.flow-fields .foot span { margin-right: auto; }
+.cart-quantity { width: 7em; }
+
+.invalid { border-color: var(--bad); background: #fff4f1; }
+#document-modal { width: min(760px, 94vw); }
+.document-content { padding: 16px 22px; }
