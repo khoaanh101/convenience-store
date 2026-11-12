@@ -1,12 +1,12 @@
 # Backend API
 
-Backend dùng FastAPI, SQLAlchemy async và MySQL. Cấu trúc database chuẩn nằm trong [`../schemas/schema-final.sql`](../schemas/schema-final.sql).
+Backend dùng FastAPI, SQLAlchemy async và MySQL. Schema database, gồm bảng, trigger, view và stored procedure, nằm trong [`../schemas/schamea.sql`](../schemas/schamea.sql).
 
 ## Yêu cầu
 
 - Python 3.12 trở lên
 - MySQL Server đang chạy và có thể truy cập từ máy chạy backend
-- Database được tạo theo `schemas/schema-final.sql`
+- Database được tạo theo `schemas/schamea.sql`
 - `uv` để đồng bộ dependencies (hoặc cài các package trong `pyproject.toml` bằng công cụ Python khác)
 
 ## Cấu hình database
@@ -52,6 +52,46 @@ Mỗi nhóm dữ liệu (resource) có các thao tác CRUD:
 | Get | `GET /<resource>/<id>` | Lấy một bản ghi theo khóa |
 | Update | `PUT /<resource>/<id>` | Cập nhật các trường gửi trong JSON |
 | Delete | `DELETE /<resource>/<id>` | Xóa bản ghi theo khóa |
+
+### Báo cáo nghiệp vụ
+
+Các API báo cáo nhận `from_date` và `to_date` theo định dạng `YYYY-MM-DD`; ngày bắt đầu phải không sau ngày kết thúc.
+
+| Báo cáo | Xem trên màn hình / JSON | Xuất Excel |
+| --- | --- | --- |
+| Doanh thu bán hàng theo hóa đơn | `GET /bao-cao/doanh-thu?from_date=2026-11-01&to_date=2026-11-30` | `GET /bao-cao/doanh-thu/xuat?from_date=2026-11-01&to_date=2026-11-30` |
+| Nhập hàng theo phiếu, hàng hóa và nhà cung cấp | `GET /bao-cao/nhap-hang?from_date=2026-11-01&to_date=2026-11-30` | `GET /bao-cao/nhap-hang/xuat?from_date=2026-11-01&to_date=2026-11-30` |
+
+Báo cáo doanh thu lấy tổng số lượng và thành tiền từ chi tiết hóa đơn, gắn với khách hàng và nhân viên lập hóa đơn. Báo cáo nhập hàng tính thành tiền theo từng dòng (`SoLuong * DonGia`). Hai route `/xuat` tải tệp Excel `.xlsx` có định dạng số tiền, tiêu đề, bộ lọc bảng và cố định hàng tiêu đề. Người lập và nơi nhận được ghi trên màn hình và trong file.
+
+### Nghiệp vụ dùng stored procedure/view
+
+| Nghiệp vụ | Route | Database object |
+| --- | --- | --- |
+| Tạo hóa đơn và các dòng hàng trong cùng giao dịch | `POST /hoa-don/ban-hang` | `sp_ban_hang` |
+| Hủy hóa đơn và hoàn lại tồn kho | `DELETE /hoa-don/{MaHD}` | `sp_huy_hoa_don` |
+| Cấp thẻ thành viên theo số ngày hiệu lực | `POST /khach-hang/cap-the` | `sp_cap_the` |
+| Đánh dấu thẻ đã hết hạn | `POST /khach-hang/thanh-vien/cap-nhat-het-han` | `capnhat_the_het_han` |
+| Danh sách thẻ còn hiệu lực | `GET /khach-hang/thanh-vien/con-hieu-luc` | `v_the_thanh_vien_con_hieu_luc` |
+| Tính lương theo tháng/năm | `GET /luong-nv/tinh-luong?thang=11&nam=2026` | `tinh_luong` |
+
+Để tránh tạo dữ liệu ngoài luồng nghiệp vụ, `POST /hoa-don` và `POST /hoa-don/chi-tiet` không được đăng ký; tạo hóa đơn và các dòng hàng bằng `POST /hoa-don/ban-hang`. Tương tự, tạo thẻ bằng `POST /khach-hang/cap-the`, truyền số ngày hiệu lực trong `SoNgay`; CRUD thẻ vẫn hỗ trợ đọc, tìm kiếm, cập nhật và xóa.
+
+`POST /hoa-don/ban-hang` nhận `MaHD`, `MaPK`, `MaKH` (có thể bỏ trống), `ThoiGian` (có thể bỏ trống) và `ChiTiet`, ví dụ:
+
+```json
+{
+  "MaHD": "HD20260001",
+  "MaPK": "PK001",
+  "MaKH": "KH001",
+  "ThoiGian": "2026-11-05T10:30:00",
+  "ChiTiet": [
+    {"MaHH": "HH001", "SoLuong": 2}
+  ]
+}
+```
+
+Procedure kiểm tra ca làm, hạn sử dụng và tồn kho; hệ thống chụp giá hiện tại, lưu hóa đơn và chi tiết rồi cập nhật tồn kho. Mã hóa đơn tối đa 17 ký tự và một hóa đơn có tối đa 99 mặt hàng khác nhau để mã chi tiết do schema sinh ra vừa cột `MaCTHD`. Cột `ThanhTien` là cột generated: API trả về cột này khi đọc chi tiết nhưng không nhận giá trị ghi từ client. Tồn kho được cập nhật bởi trigger nhập/bán hàng.
 
 Các resource đã đăng ký:
 
@@ -146,7 +186,7 @@ Backend kiểm tra một số khóa ngoại trước khi tạo/cập nhật. MyS
 | Nhà cung cấp | Không xóa được khi còn phiếu nhập tham chiếu (`RESTRICT`) |
 | Chức vụ | Không xóa được khi còn nhân viên thuộc chức vụ đó (`RESTRICT`) |
 
-Quy tắc đầy đủ nằm trong các khai báo `FOREIGN KEY` của `schemas/schema-final.sql`.
+Quy tắc đầy đủ nằm trong các khai báo `FOREIGN KEY`, trigger và stored procedure của `schemas/schamea.sql`.
 
 ## Xử lý lỗi
 

@@ -1,13 +1,90 @@
 import json
 from collections.abc import Mapping, Sequence
 from inspect import Parameter, Signature
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from app.database.connection import get_session
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+async def handle_database_write_error(
+    session: AsyncSession,
+    exc: IntegrityError | OperationalError,
+    *,
+    signal_status_code: int,
+    signal_detail: str | None,
+    check_constraint_detail: str,
+) -> NoReturn:
+    await session.rollback()
+    if isinstance(exc, IntegrityError):
+        raise HTTPException(
+            status_code=409,
+            detail="Dữ liệu xung đột với ràng buộc trong cơ sở dữ liệu",
+        ) from exc
+
+    error_args = getattr(exc.orig, "args", ())
+    error_code = error_args[0] if error_args else None
+    if error_code == 1644:
+        detail = signal_detail or (
+            str(error_args[1])
+            if len(error_args) > 1
+            else "Dữ liệu vi phạm quy tắc nghiệp vụ."
+        )
+        raise HTTPException(status_code=signal_status_code, detail=detail) from exc
+    if error_code == 3819:
+        raise HTTPException(status_code=422, detail=check_constraint_detail) from exc
+    raise exc
+
+
+async def execute_write(
+    session: AsyncSession,
+    statement: str,
+    parameters: dict[str, Any],
+    *,
+    signal_status_code: int = 409,
+    signal_detail: str | None = None,
+    check_constraint_detail: str = (
+        "Dữ liệu không hợp lệ do vi phạm ràng buộc CHECK của bảng."
+    ),
+) -> None:
+    try:
+        await session.execute(text(statement), parameters)
+        await session.commit()
+    except (IntegrityError, OperationalError) as exc:
+        await handle_database_write_error(
+            session,
+            exc,
+            signal_status_code=signal_status_code,
+            signal_detail=signal_detail,
+            check_constraint_detail=check_constraint_detail,
+        )
+
+
+async def execute_procedure_with_rows(
+    session: AsyncSession,
+    procedure_call: str,
+    parameters: dict[str, Any],
+    *,
+    signal_status_code: int = 422,
+) -> list[dict[str, Any]]:
+    try:
+        result = await session.execute(text(procedure_call), parameters)
+        rows = [dict(row) for row in result.mappings().all()]
+        await session.commit()
+        return rows
+    except (IntegrityError, OperationalError) as exc:
+        await handle_database_write_error(
+            session,
+            exc,
+            signal_status_code=signal_status_code,
+            signal_detail=None,
+            check_constraint_detail=(
+                "Tham số không hợp lệ theo ràng buộc trong cơ sở dữ liệu."
+            ),
+        )
 
 
 def error_response(description: str) -> dict[str, Any]:
@@ -25,14 +102,29 @@ def register_crud_routes(
     search_value_placeholders: Mapping[str, str],
     create_example: dict[str, Any],
     update_example: dict[str, Any],
+    generated_columns: Sequence[str] = (),
     time_columns: Sequence[str] = (),
     foreign_keys: Mapping[str, tuple[str, str]] | None = None,
     check_constraint_detail: str | None = None,
     business_conflict_detail: str | None = None,
+    delete_procedure: str | None = None,
+    allow_create: bool = True,
+    path_parameter_descriptions: Mapping[str, str] | None = None,
     path: str = "",
 ) -> None:
-    allowed_columns = set(columns)
+    generated_column_names = set(generated_columns)
+    allowed_columns = set(columns) - generated_column_names
     key_columns = tuple(primary_keys)
+    if not generated_column_names <= set(columns):
+        raise ValueError("generated_columns must be included in columns")
+    if not set(required_columns) <= allowed_columns:
+        raise ValueError("required_columns must only contain writable columns")
+    if not set(key_columns) <= set(columns):
+        raise ValueError("primary_keys must be included in columns")
+    if not set(search_columns) <= set(columns):
+        raise ValueError("search_columns must be included in columns")
+    if delete_procedure and len(key_columns) != 1:
+        raise ValueError("delete_procedure requires a single-column primary key")
     quoted_table = f"`{table}`"
     time_column_names = set(time_columns)
     selected_columns = ", ".join(
@@ -68,7 +160,15 @@ def register_crud_routes(
 
     def set_path_signature(endpoint, *, include_payload: bool = False) -> None:
         parameters = [
-            Parameter(name, Parameter.POSITIONAL_OR_KEYWORD, annotation=str)
+            Parameter(
+                name,
+                Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=(
+                    Annotated[str, Path(description=path_parameter_descriptions[name])]
+                    if path_parameter_descriptions and name in path_parameter_descriptions
+                    else str
+                ),
+            )
             for name in path_parameter_names()
         ]
         if include_payload:
@@ -114,37 +214,6 @@ def register_crud_routes(
         if record is None:
             raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu")
         return dict(record)
-
-    async def execute_write(
-        session: AsyncSession,
-        statement: str,
-        parameters: dict[str, Any],
-    ) -> None:
-        try:
-            await session.execute(text(statement), parameters)
-            await session.commit()
-        except IntegrityError as exc:
-            await session.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="Dữ liệu xung đột với ràng buộc trong cơ sở dữ liệu",
-            ) from exc
-        except OperationalError as exc:
-            await session.rollback()
-            error_args = getattr(exc.orig, "args", ())
-            error_code = error_args[0] if error_args else None
-            if error_code == 1644:
-                detail = business_conflict_detail or (
-                    str(error_args[1]) if len(error_args) > 1 else
-                    "Dữ liệu xung đột với quy tắc nghiệp vụ."
-                )
-                raise HTTPException(status_code=409, detail=detail) from exc
-            if error_code == 3819:
-                raise HTTPException(
-                    status_code=422,
-                    detail=check_constraint_detail,
-                ) from exc
-            raise
 
     async def validate_foreign_keys(
         session: AsyncSession,
@@ -251,6 +320,8 @@ def register_crud_routes(
             session,
             f"INSERT INTO {quoted_table} ({columns_sql}) VALUES ({values_sql})",
             payload,
+            signal_detail=business_conflict_detail,
+            check_constraint_detail=check_constraint_detail,
         )
         keys = {column: payload[column] for column in key_columns}
         return await get_record(session, keys)
@@ -283,6 +354,8 @@ def register_crud_routes(
             session,
             f"UPDATE {quoted_table} SET {assignments} WHERE {key_filter()}",
             parameters,
+            signal_detail=business_conflict_detail,
+            check_constraint_detail=check_constraint_detail,
         )
         return await get_record(session, keys)
 
@@ -290,10 +363,17 @@ def register_crud_routes(
         session = kwargs["session"]
         keys = record_keys(kwargs)
         await get_record(session, keys)
+        statement = (
+            f"CALL `{delete_procedure}`(:{key_columns[0]})"
+            if delete_procedure
+            else f"DELETE FROM {quoted_table} WHERE {key_filter()}"
+        )
         await execute_write(
             session,
-            f"DELETE FROM {quoted_table} WHERE {key_filter()}",
+            statement,
             keys,
+            signal_detail=business_conflict_detail,
+            check_constraint_detail=check_constraint_detail,
         )
         return {"message": "Xóa dữ liệu thành công"}
 
@@ -331,20 +411,21 @@ def register_crud_routes(
             500: error_response("Lỗi máy chủ khi truy vấn cơ sở dữ liệu."),
         },
     )
-    router.add_api_route(
-        path or "/",
-        create_record,
-        methods=["POST"],
-        responses={
-            400: error_response("Body rỗng hoặc chứa cột không hợp lệ."),
-            409: error_response(conflict_description),
-            422: error_response(
-                "Thiếu trường bắt buộc, sai định dạng body, mã tham chiếu không tồn tại "
-                f"hoặc {check_constraint_detail}"
-            ),
-            500: error_response("Lỗi máy chủ khi tạo dữ liệu."),
-        },
-    )
+    if allow_create:
+        router.add_api_route(
+            path or "/",
+            create_record,
+            methods=["POST"],
+            responses={
+                400: error_response("Body rỗng hoặc chứa cột không hợp lệ."),
+                409: error_response(conflict_description),
+                422: error_response(
+                    "Thiếu trường bắt buộc, sai định dạng body, mã tham chiếu không tồn tại "
+                    f"hoặc {check_constraint_detail}"
+                ),
+                500: error_response("Lỗi máy chủ khi tạo dữ liệu."),
+            },
+        )
     item_path = get_path()
     router.add_api_route(
         item_path,
