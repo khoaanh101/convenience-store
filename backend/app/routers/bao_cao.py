@@ -27,6 +27,11 @@ REPORT_HEADERS = {
     "TenHang": "Tên hàng",
     "DonGia": "Đơn giá",
     "ThanhTien": "Thành tiền",
+    "Loai": "Loại",
+    "TonKho": "Tồn kho",
+    "HSD": "Hạn sử dụng",
+    "TinhTrang": "Tình trạng",
+    "NCCGanNhat": "NCC gần nhất",
 }
 
 
@@ -41,8 +46,9 @@ async def validate_period(from_date: date, to_date: date) -> None:
 def report_xlsx(
     *,
     title: str,
-    from_date: date,
-    to_date: date,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    period: str | None = None,
     author: str,
     recipient: str,
     columns: tuple[str, ...],
@@ -62,7 +68,7 @@ def report_xlsx(
     sheet.row_dimensions[1].height = 30
 
     metadata = (
-        ("Kỳ báo cáo", f"{from_date.isoformat()} - {to_date.isoformat()}"),
+        ("Kỳ báo cáo", period or f"{from_date.isoformat()} - {to_date.isoformat()}"),
         ("Người lập", author),
         ("Nơi nhận", recipient),
         ("Ngày xuất", datetime.now().astimezone().isoformat(timespec="seconds")),
@@ -90,6 +96,8 @@ def report_xlsx(
             cell = sheet.cell(row=row_number, column=column_number, value=value)
             if column in {"TongTien", "DonGia", "ThanhTien"}:
                 cell.number_format = '#,##0.00 "₫"'
+            elif column == "HSD":
+                cell.number_format = "DD/MM/YYYY"
 
     total_row = header_row + len(rows) + 1
     for column_number, value in enumerate(totals, start=1):
@@ -272,3 +280,85 @@ async def xuat_nhap_hang(
         ),
     )
     return xlsx_response(content, "bao-cao-nhap-hang.xlsx")
+
+
+# ---------------------------------------------------------------------------
+# Báo cáo hàng tồn kho thấp / sắp hết hạn (Người 5)
+# Người lập: nhân viên kho -> người nhận: quản lý / bộ phận nhập hàng.
+# Thứ tự nhãn theo truy vấn 2.1 của Người 1: Đã hết hạn > Sắp hết hạn > Hết hàng > Tồn thấp.
+# ---------------------------------------------------------------------------
+TON_KHO_SQL = """
+    SELECT hh.MaHH,
+           hh.TenHang,
+           hh.Loai,
+           hh.SoLuongHangTonKho AS TonKho,
+           hh.HSD,
+           CASE
+               WHEN hh.HSD IS NOT NULL AND hh.HSD < CURDATE()                               THEN 'Đã hết hạn'
+               WHEN hh.HSD IS NOT NULL AND hh.HSD <= DATE_ADD(CURDATE(), INTERVAL :han DAY) THEN 'Sắp hết hạn'
+               WHEN hh.SoLuongHangTonKho = 0                                                THEN 'Hết hàng'
+               ELSE 'Tồn thấp'
+           END AS TinhTrang,
+           (SELECT ncc.TenNCC
+              FROM nhap_hang nh
+              JOIN nha_cung_cap ncc ON ncc.MaNCC = nh.MaNCC
+             WHERE nh.MaHH = hh.MaHH
+             ORDER BY nh.NgayNhap DESC, nh.MaNH DESC
+             LIMIT 1) AS NCCGanNhat
+    FROM hang_hoa AS hh
+    WHERE hh.SoLuongHangTonKho <= :nguong
+       OR (hh.HSD IS NOT NULL AND hh.HSD <= DATE_ADD(CURDATE(), INTERVAL :han DAY))
+    ORDER BY hh.SoLuongHangTonKho ASC, hh.HSD ASC, hh.MaHH
+"""
+
+
+@router.get("/ton-kho")
+async def ton_kho(
+    nguong: int = Query(10, ge=0, description="Tồn kho từ mức này trở xuống bị coi là thấp"),
+    han: int = Query(7, ge=0, description="Hàng hết hạn trong số ngày này (hoặc đã hết hạn) được đưa vào báo cáo"),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(text(TON_KHO_SQL), {"nguong": nguong, "han": han})
+    rows = [dict(row) for row in result.mappings().all()]
+    count = lambda status: sum(1 for row in rows if row["TinhTrang"] == status)  # noqa: E731
+    return {
+        "nguong": nguong,
+        "han": han,
+        "ngay_lap": date.today(),
+        "summary": {
+            "so_mat_hang": len(rows),
+            "da_het_han": count("Đã hết hạn"),
+            "sap_het_han": count("Sắp hết hạn"),
+            "het_hang": count("Hết hàng"),
+            "ton_thap": count("Tồn thấp"),
+        },
+        "rows": rows,
+    }
+
+
+@router.get("/ton-kho/xuat")
+async def xuat_ton_kho(
+    nguong: int = Query(10, ge=0),
+    han: int = Query(7, ge=0),
+    session: AsyncSession = Depends(get_session),
+):
+    report = await ton_kho(nguong, han, session)
+    today = date.today().strftime("%d/%m/%Y")
+    content = report_xlsx(
+        title="BÁO CÁO HÀNG TỒN KHO THẤP / SẮP HẾT HẠN",
+        period=f"Tại ngày {today} (tồn kho từ {nguong} trở xuống hoặc hết hạn trong {han} ngày)",
+        author="Nhân viên kho",
+        recipient="Quản lý cửa hàng / bộ phận nhập hàng",
+        columns=("MaHH", "TenHang", "Loai", "TonKho", "HSD", "TinhTrang", "NCCGanNhat"),
+        rows=report["rows"],
+        totals=(
+            f"TỔNG CỘNG ({report['summary']['so_mat_hang']} mặt hàng)",
+            "",
+            "",
+            sum(int(row["TonKho"]) for row in report["rows"]),
+            "",
+            "",
+            "",
+        ),
+    )
+    return xlsx_response(content, "bao-cao-ton-kho.xlsx")

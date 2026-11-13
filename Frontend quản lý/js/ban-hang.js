@@ -93,11 +93,13 @@
       return;
     }
     const data = new FormData(form);
+    const dong = Array.from(lines, ([MaHH, line]) => ({ MaHH, SoLuong: line.input.valueAsNumber }));
     const payload = {
       MaHD: data.get('MaHD').trim(),
       MaPK: data.get('MaPK'),
       MaKH: data.get('MaKH') || null,
-      MatHang: Array.from(lines, ([MaHH, line]) => ({ MaHH, SoLuong: line.input.valueAsNumber }))
+      ChiTiet: dong,
+      MatHang: dong
     };
     fields.disabled = true;
     showStatus('Đang lưu hóa đơn…');
