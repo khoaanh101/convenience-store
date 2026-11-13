@@ -75,3 +75,29 @@ dialog h2{margin:0;padding:18px 22px;font-size:17px;border-bottom:1px solid var(
 .burger{display:inline-block}.top,#app{padding-left:16px;padding-right:16px}
 .grid2,.fields{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.side{transition:none}}
+
+
+.print-head,.print-sign{display:none}
+.print-sign{grid-template-columns:1fr 1fr;gap:20px;margin-top:36px;text-align:center}
+.print-sign b,.print-sign small,.print-sign em{display:block}
+.print-sign small,.print-sign em{color:var(--mute);font-size:13px}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff}
+  .side,.top,.noprint,#toast,.count,.report-meta{display:none!important}
+  .shell{display:block}
+  #app{padding:0;max-width:none}
+  .print-head{display:block;text-align:center;margin-bottom:16px}
+  .print-head h2{margin:8px 0 4px;font-size:20px}
+  .print-head p{margin:0;color:#444}
+  .print-sign{display:grid;break-inside:avoid;margin-top:48px}
+  .print-sign div::after{content:"";display:block;height:64px}
+  .card{border:0}
+  .stats{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-bottom:12px}
+  .stat{border:1px solid #ccc;border-left:4px solid #999;padding:8px 12px}
+  .stat b{font-size:18px}
+  .tw{overflow:visible}
+  th,td{white-space:normal;padding:6px 8px}
+  .tag{background:none;padding:0;color:#000}
+  tr{break-inside:avoid}
+}
